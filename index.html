@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Eaglercraft – Advanced Storm Systems</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+/* =========================
+   GLOBAL UI
+========================= */
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+}
+
+/* Menu */
+#stormMenu {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,10,15,0.88);
+  display: none;
+  z-index: 99999;
+  color: white;
+}
+.menuBox {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 460px;
+  transform: translate(-50%, -50%);
+  background: #1d1f2e;
+  padding: 16px;
+  border-radius: 8px;
+}
+.menuBox h1 {
+  text-align: center;
+  margin: 6px;
+  font-size: 18px;
+}
+.menuBox button {
+  width: 100%;
+  padding: 9px;
+  margin-top: 6px;
+  background: #3a3f55;
+  border: none;
+  color: white;
+  border-radius: 4px;
+}
+.menuBox label {
+  font-size: 12px;
+  display: block;
+  margin-top: 8px;
+}
+
+/* Alert Banner */
+#stormAlert {
+  position: fixed;
+  top: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  font-weight: bold;
+  border-radius: 4px;
+  z-index: 100000;
+  transition: top 0.4s ease;
+}
+
+/* Alert timer bar */
+#alertTimer {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 6px;
+  background: rgba(255,255,255,.25);
+  z-index: 100000;
+  display: none;
+}
+#alertTimerBar {
+  height: 100%;
+  width: 100%;
+  background: red;
+}
+
+/* Radar */
+#radar {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 400px;
+  height: 400px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #0a0f18;
+  display: none;
+  z-index: 99998;
+}
+
+/* FX canvas */
+#fx {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  pointer-events: none;
+}
+</style>
+</head>
+
+<body>
+
+<!-- ===== MENU ===== -->
+<div id="stormMenu">
+  <div class="menuBox">
+    <h1>Storm Systems Control</h1>
+
+    <button onclick="Radar.show()">📡 Open Weather Radar</button>
+    <button onclick="History.show()">📜 Warning History</button>
+    <button onclick="UI.close()">✅ Close Menu</button>
+
+    <label>Storm Intensity</label>
+    <input type="range" min="0.5" max="2" step="0.1" value="1"
+      oninput="Storm.settings.intensity=this.value">
+  </div>
+</div>
+
+<div id="stormAlert"></div>
+<div id="alertTimer"><div id="alertTimerBar"></div></div>
+<canvas id="radar" width="400" height="400"></canvas>
+<canvas id="fx"></canvas>
+
+<script>
+/* =====================================================
+   CORE UI
+===================================================== */
+const UI = {
+  open(){ menu.style.display="block"; },
+  close(){ menu.style.display="none"; }
+};
+const menu = document.getElementById("stormMenu");
+
+/* Auto-open once loaded */
+setTimeout(()=>UI.open(), 1200);
+document.addEventListener("keydown",e=>{
+  if(e.key.toLowerCase()==="m") UI.open();
+  if(e.key==="Escape") radar.style.display="none";
+});
+
+/* =====================================================
+   SEASONS
+===================================================== */
+const Seasons = {
+  current: "winter",
+  isCold(){ return this.current==="winter"; },
+  tornadoAllowed(){ return this.current!=="winter"; }
+};
+
+/* =====================================================
+   STORM SYSTEM
+===================================================== */
+const Storm = {
+  settings:{ intensity: 1 },
+  storms:[
+    {x:3000,z:-1200,i:.65,dx:.04,dz:.03},
+    {x:-4200,z:1600,i:.4,dx:.02,dz:-.02}
+  ],
+  update(){
+    this.storms.forEach(s=>{
+      s.x += s.dx;
+      s.z += s.dz;
+      s.i = Math.min(1, s.i + .00012 * this.settings.intensity);
+    });
+  },
+  strongest(){
+    return this.storms.reduce((a,b)=>a.i>b.i?a:b);
+  }
+};
+
+/* =====================================================
+   AUDIO SYSTEM (EAS + SIREN)
+===================================================== */
+const audioCtx = new (window.AudioContext||webkitAudioContext)();
+let sirenOsc=null;
+function startSiren(){
+  if(sirenOsc) return;
+  sirenOsc = audioCtx.createOscillator();
+  let g = audioCtx.createGain();
+  sirenOsc.frequency.value = 440;
+  g.gain.value = .14;
+  sirenOsc.connect(g);
+  g.connect(audioCtx.destination);
+  sirenOsc.start();
+}
+function stopSiren(){
+  if(!sirenOsc) return;
+  sirenOsc.stop();
+  sirenOsc=null;
+}
+function easSpeak(msg){
+  if(!speechSynthesis) return;
+  let u = new SpeechSynthesisUtterance(msg);
+  u.pitch=.1;u.rate=.85;
+  speechSynthesis.speak(u);
+}
+
+/* =====================================================
+   WARNING HISTORY
+===================================================== */
+const History = {
+  log:[],
+  add(t){
+    this.log.unshift({text:t,time:new Date().toLocaleTimeString()});
+    if(this.log.length>20) this.log.pop();
+  },
+  show(){
+    alert(
+      this.log.map(e=>`${e.time} - ${e.text}`).join("\n")
+      || "No warnings yet"
+    );
+  }
+};
+
+/* =====================================================
+   WARNINGS
+===================================================== */
+const Alert = {
+  current:null,
+  expires:0,
+  set(text,color,dur){
+    if(this.current===text) return;
+    this.current=text;
+    this.expires=Date.now()+dur*60000;
+    stormAlert.textContent=text;
+    stormAlert.style.background=color;
+    stormAlert.style.top="10px";
+    History.add(text);
+    easSpeak(text);
+    if(text.includes("Tornado")) startSiren();
+    alertTimer.style.display="block";
+  },
+  clear(){
+    this.current=null;
+    stormAlert.style.top="-60px";
+    alertTimer.style.display="none";
+    stopSiren();
+  },
+  update(){
+    if(this.current && Date.now()>this.expires) this.clear();
+    if(this.current){
+      let p=(this.expires-Date.now())/(10*60000);
+      alertTimerBar.style.width=Math.max(0,p*100)+"%";
+    }
+  }
+};
+
+const stormAlert = document.getElementById("stormAlert");
+const alertTimer = document.getElementById("alertTimer");
+const alertTimerBar = document.getElementById("alertTimerBar");
+
+/* =====================================================
+   RADAR
+===================================================== */
+const radar=document.getElementById("radar");
+const rctx=radar.getContext("2d");
+const Radar={
+  show(){ radar.style.display="block"; }
+};
+
+/* =====================================================
+   VISUAL FX
+===================================================== */
+const fx=document.getElementById("fx");
+const ctx=fx.getContext("2d");
+function resize(){
+  fx.width=innerWidth;
+  fx.height=innerHeight;
+}
+window.addEventListener("resize",resize);resize();
+
+/* =====================================================
+   MAIN LOOP
+===================================================== */
+function tick(){
+  ctx.clearRect(0,0,fx.width,fx.height);
+  Storm.update();
+  const s=Storm.strongest();
+
+  /* Alerts */
+  if(Seasons.isCold()){
+    if(s.i>.65) Alert.set("❄️ Snow Squall Warning","red",15);
+  } else if(s.i>.85 && Seasons.tornadoAllowed()){
+    Alert.set("🚨 Tornado Warning","red",10);
+  } else if(s.i>.6){
+    Alert.set("Severe Thunderstorm Warning","orange",15);
+  } else {
+    Alert.clear();
+  }
+
+  Alert.update();
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,162 @@
+<!-- =====================================================
+     EAGLERCRAFT ADVANCED STORM SYSTEM – FINAL BUILD
+===================================================== -->
+
+<style>
+/* ===== UI ===== */
+#stormMenu{position:fixed;inset:0;background:rgba(10,10,15,.88);
+display:none;z-index:99999;font-family:Arial;color:white}
+.menuBox{position:absolute;top:50%;left:50%;width:460px;
+transform:translate(-50%,-50%);background:#1d1f2e;
+padding:16px;border-radius:8px}
+h1{text-align:center;font-size:18px;margin:6px}
+button{width:100%;margin-top:6px;padding:9px;
+background:#3a3f55;color:white;border:none;border-radius:4px}
+label{font-size:12px;margin-top:8px;display:block}
+input{width:100%}
+#stormAlert{position:fixed;top:-60px;left:50%;transform:translateX(-50%);
+padding:10px 20px;font-weight:bold;border-radius:4px;
+z-index:100000;transition:top .4s}
+#alertTimer{position:fixed;top:52px;left:50%;
+transform:translateX(-50%);width:300px;height:6px;
+background:rgba(255,255,255,.2);z-index:100000}
+#alertTimerBar{height:100%;background:red;width:100%}
+canvas{pointer-events:none}
+</style>
+
+<div id="stormMenu">
+  <div class="menuBox">
+    <h1>Storm Systems</h1>
+    <canvas id="preview" width="400" height="150" style="background:#111"></canvas>
+    <button onclick="Radar.show()">Open Weather Radar</button>
+    <button onclick="History.show()">Warning History</button>
+    <button onclick="UI.close()">Close</button>
+
+    <label>Storm Intensity</label>
+    <input type="range" min="0.5" max="2" step="0.1"
+    oninput="Storm.settings.intensity=this.value">
+  </div>
+</div>
+
+<div id="stormAlert"></div>
+<div id="alertTimer"><div id="alertTimerBar"></div></div>
+<canvas id="radar" width="400" height="400"
+style="display:none;position:fixed;top:50%;left:50%;
+transform:translate(-50%,-50%);background:#0a0f18;
+border-radius:50%;z-index:99999"></canvas>
+<canvas id="fx" style="position:fixed;inset:0;z-index:9997"></canvas>
+
+<script>
+/* ===== CORE SYSTEMS ===== */
+const UI={open:()=>menu.style.display="block",
+close:()=>menu.style.display="none"};
+const menu=document.getElementById("stormMenu");
+setTimeout(()=>UI.open(),900);
+document.addEventListener("keydown",e=>{
+ if(e.key==="m")UI.open();
+});
+
+/* ===== SEASONS ===== */
+const Seasons={cur:"summer",
+isCold(){return this.cur==="winter"},
+tornado(){return this.cur!=="winter"}};
+
+/* ===== STORMS ===== */
+const Storm={
+settings:{intensity:1},
+storms:[
+{x:3000,z:-1000,i:.6,r:0,dx:.04,dz:.02,type:"supercell"},
+{x:-4500,z:2000,i:.3,r:1.4,dx:.02,dz:-.03,type:"winter"}
+],
+update(){
+ this.storms.forEach(s=>{
+  s.x+=s.dx; s.z+=s.dz;
+  s.r+=.002; s.i=Math.min(1,
+   s.i+.0001*this.settings.intensity);
+ });
+},
+closest(){
+ return this.storms[0];
+}
+};
+
+/* ===== WARNING HISTORY ===== */
+const History={
+log:[],
+add(type,dur){
+ this.log.unshift({type,start:Date.now(),dur});
+ if(this.log.length>20)this.log.pop();
+},
+show(){
+ alert(
+ this.log.map(w=>
+   `${w.type} (${Math.round((Date.now()-w.start)/60000)} min ago)`
+ ).join("\n")||"No warnings yet"
+ );
+}
+};
+
+/* ===== AUDIO ===== */
+const audio=new (window.AudioContext||webkitAudioContext)();
+function EASSpeak(msg){
+ const u=new SpeechSynthesisUtterance(msg);
+ u.pitch=.1;u.rate=.85; speechSynthesis.speak(u);
+}
+let siren=null;
+function sirenOn(){
+ if(siren)return;
+ siren=audio.createOscillator();
+ const g=audio.createGain();
+ siren.frequency.value=440;
+ siren.connect(g);g.connect(audio.destination);
+ g.gain.value=.12;siren.start();
+}
+function sirenOff(){if(siren){siren.stop();siren=null}}
+
+/* ===== WARNINGS ===== */
+const Alert={
+cur:null,exp:null,
+set(type,col,dur){
+ if(this.cur===type)return;
+ this.cur=type;this.exp=Date.now()+dur*60000;
+ alertBox(type,col);History.add(type,dur);
+ EASSpeak(`The National Weather Service has issued a ${type}`);
+ if(type.includes("Tornado"))sirenOn();
+},
+clear(){
+ this.cur=null;this.exp=null;sirenOff();hideAlert();
+},
+tick(){
+ if(this.exp&&Date.now()>this.exp)this.clear();
+}
+};
+
+const alertDiv=document.getElementById("stormAlert");
+function alertBox(t,c){
+ alertDiv.textContent=t;
+ alertDiv.style.background=c;
+ alertDiv.style.top="10px";
+}
+function hideAlert(){alertDiv.style.top="-60px"}
+
+/* ===== RADAR ===== */
+const Radar={
+ctx:document.getElementById("radar").getContext("2d"),
+show(){radar.style.display="block"}
+};
+
+/* ===== MAIN LOOP ===== */
+function tick(){
+ Storm.update();
+ const s=Storm.closest();
+ if(s.i>.85&&Seasons.tornado())
+   Alert.set("🚨 Tornado Warning","red",10);
+ else if(s.i>.6)
+   Alert.set("Severe Thunderstorm Warning","orange",15);
+ else Alert.clear();
+
+ Alert.tick();
+ requestAnimationFrame(tick);
+}
+tick();
+</script>
